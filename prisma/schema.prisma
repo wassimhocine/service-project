@@ -7,9 +7,221 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+}
+
+enum BusinessStatus {
+  ACTIVE
+  SUSPENDED
+}
+
+enum MembershipRole {
+  OWNER
+  MANAGER
+  STAFF
+}
+
+enum MembershipStatus {
+  INVITED
+  ACTIVE
+  SUSPENDED
+}
+
+enum ServiceStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum ScheduleExceptionType {
+  TIME_OFF
+  SPECIAL_HOURS
+  HOLIDAY
+}
+
+enum AppointmentStatus {
+  PENDING
+  CONFIRMED
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
 model User {
-  id        String   @id @default(cuid())
-  email     String   @unique
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id           String               @id @default(uuid()) @db.Uuid
+  email        String               @unique @db.VarChar(320)
+  passwordHash String               @map("password_hash") @db.VarChar(255)
+  firstName    String               @map("first_name") @db.VarChar(100)
+  lastName     String               @map("last_name") @db.VarChar(100)
+  phone        String?              @db.VarChar(30)
+  status       UserStatus           @default(ACTIVE)
+  createdAt    DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime             @updatedAt @map("updated_at") @db.Timestamptz(6)
+  memberships  BusinessMembership[]
+  customers    Customer[]
+
+  @@map("users")
+}
+
+model Business {
+  id                 String                 @id @default(uuid()) @db.Uuid
+  name               String                 @db.VarChar(200)
+  slug               String                 @unique @db.VarChar(120)
+  description        String?                @db.Text
+  email              String                 @db.VarChar(320)
+  phone              String                 @db.VarChar(30)
+  address            String?                @db.Text
+  timezone           String                 @default("UTC") @db.VarChar(64)
+  currency           String                 @default("USD") @db.Char(3)
+  status             BusinessStatus         @default(ACTIVE)
+  createdAt          DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime               @updatedAt @map("updated_at") @db.Timestamptz(6)
+  memberships        BusinessMembership[]
+  customers          Customer[]
+  services           Service[]
+  workingHours       BusinessWorkingHours[]
+  scheduleExceptions ScheduleException[]
+  appointments       Appointment[]
+
+  @@map("businesses")
+}
+
+model BusinessMembership {
+  id                 String              @id @default(uuid()) @db.Uuid
+  userId             String              @map("user_id") @db.Uuid
+  businessId         String              @map("business_id") @db.Uuid
+  role               MembershipRole
+  status             MembershipStatus    @default(INVITED)
+  createdAt          DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+  user               User                @relation(fields: [userId], references: [id], onDelete: Restrict)
+  business           Business            @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  staffServices      StaffService[]
+  workingHours       StaffWorkingHours[]
+  scheduleExceptions ScheduleException[]
+  appointments       Appointment[]
+
+  @@unique([userId, businessId])
+  @@index([businessId, role, status])
+  @@map("business_memberships")
+}
+
+model Customer {
+  id           String        @id @default(uuid()) @db.Uuid
+  businessId   String        @map("business_id") @db.Uuid
+  userId       String?       @map("user_id") @db.Uuid
+  firstName    String        @map("first_name") @db.VarChar(100)
+  lastName     String        @map("last_name") @db.VarChar(100)
+  email        String        @db.VarChar(320)
+  phone        String        @db.VarChar(30)
+  notes        String?       @db.Text
+  createdAt    DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
+  business     Business      @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  user         User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
+  appointments Appointment[]
+
+  @@index([businessId, email])
+  @@index([businessId, lastName, firstName])
+  @@map("customers")
+}
+
+model Service {
+  id              String         @id @default(uuid()) @db.Uuid
+  businessId      String         @map("business_id") @db.Uuid
+  name            String         @db.VarChar(200)
+  description     String?        @db.Text
+  durationMinutes Int            @map("duration_minutes") @db.SmallInt
+  price           Decimal        @db.Decimal(12, 2)
+  status          ServiceStatus  @default(ACTIVE)
+  createdAt       DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
+  business        Business       @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  staffServices   StaffService[]
+  appointments    Appointment[]
+
+  @@index([businessId, status])
+  @@map("services")
+}
+
+model StaffService {
+  staffId   String             @map("staff_id") @db.Uuid
+  serviceId String             @map("service_id") @db.Uuid
+  staff     BusinessMembership @relation(fields: [staffId], references: [id], onDelete: Restrict)
+  service   Service            @relation(fields: [serviceId], references: [id], onDelete: Restrict)
+
+  @@id([staffId, serviceId])
+  @@index([serviceId])
+  @@map("staff_services")
+}
+
+model BusinessWorkingHours {
+  id         String    @id @default(uuid()) @db.Uuid
+  businessId String    @map("business_id") @db.Uuid
+  dayOfWeek  Int       @map("day_of_week") @db.SmallInt
+  startTime  DateTime? @map("start_time") @db.Time(0)
+  endTime    DateTime? @map("end_time") @db.Time(0)
+  isClosed   Boolean   @default(false) @map("is_closed")
+  business   Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, dayOfWeek])
+  @@map("business_working_hours")
+}
+
+model StaffWorkingHours {
+  id        String             @id @default(uuid()) @db.Uuid
+  staffId   String             @map("staff_id") @db.Uuid
+  dayOfWeek Int                @map("day_of_week") @db.SmallInt
+  startTime DateTime?          @map("start_time") @db.Time(0)
+  endTime   DateTime?          @map("end_time") @db.Time(0)
+  isOff     Boolean            @default(false) @map("is_off")
+  staff     BusinessMembership @relation(fields: [staffId], references: [id], onDelete: Cascade)
+
+  @@unique([staffId, dayOfWeek])
+  @@map("staff_working_hours")
+}
+
+model ScheduleException {
+  id         String                @id @default(uuid()) @db.Uuid
+  businessId String                @map("business_id") @db.Uuid
+  staffId    String?               @map("staff_id") @db.Uuid
+  date       DateTime              @db.Date
+  startTime  DateTime?             @map("start_time") @db.Time(0)
+  endTime    DateTime?             @map("end_time") @db.Time(0)
+  type       ScheduleExceptionType
+  reason     String?               @db.Text
+  business   Business              @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  staff      BusinessMembership?   @relation(fields: [staffId], references: [id], onDelete: Cascade)
+
+  @@index([businessId, date])
+  @@index([staffId, date])
+  @@map("schedule_exceptions")
+}
+
+model Appointment {
+  id              String             @id @default(uuid()) @db.Uuid
+  businessId      String             @map("business_id") @db.Uuid
+  customerId      String             @map("customer_id") @db.Uuid
+  staffId         String             @map("staff_id") @db.Uuid
+  serviceId       String             @map("service_id") @db.Uuid
+  startTime       DateTime           @map("start_time") @db.Timestamptz(6)
+  endTime         DateTime           @map("end_time") @db.Timestamptz(6)
+  durationMinutes Int                @map("duration_minutes") @db.SmallInt
+  status          AppointmentStatus  @default(PENDING)
+  price           Decimal            @db.Decimal(12, 2)
+  notes           String?            @db.Text
+  createdAt       DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime           @updatedAt @map("updated_at") @db.Timestamptz(6)
+  cancelledAt     DateTime?          @map("cancelled_at") @db.Timestamptz(6)
+  completedAt     DateTime?          @map("completed_at") @db.Timestamptz(6)
+  business        Business           @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  customer        Customer           @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  staff           BusinessMembership @relation(fields: [staffId], references: [id], onDelete: Restrict)
+  service         Service            @relation(fields: [serviceId], references: [id], onDelete: Restrict)
+
+  @@index([businessId, startTime])
+  @@index([customerId, startTime])
+  @@index([staffId, startTime])
+  @@index([serviceId])
+  @@map("appointments")
 }
