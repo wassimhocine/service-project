@@ -1,8 +1,14 @@
 import "dotenv/config";
 import { app } from "./app.js";
+import { config } from "./config/index.js";
+import { logger } from "./utils/logger.js";
+import { prisma } from "./infrastructure/prisma.js";
 
-const port = Number(process.env.PORT ?? 3000);
+app.listen(config.port, () => {
+  logger.info({ port: config.port }, "Server listening");
+});
 
-app.listen(port, () => {
-  console.log(`Server listening on port ${port}`);
+process.on("SIGTERM", async () => {
+  await prisma.$disconnect();
+  process.exit(0);
 });
