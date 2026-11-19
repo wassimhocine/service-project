@@ -1,6 +1,6 @@
 import { Router } from "express";
-import { authenticate } from "../../middleware/authenticate.js";
-import { validateBody, validateQuery } from "../../middleware/validate.js";
+import { validateBody, validateParams, validateQuery } from "../../middleware/index.js";
+import { uuidParams } from "../../utils/params.js";
 import * as staffController from "./staff.controller.js";
 import {
   addStaffSchema,
@@ -12,11 +12,26 @@ import {
 
 export const staffRouter = Router({ mergeParams: true });
 
-staffRouter.use(authenticate);
+const staffIdParams = validateParams(uuidParams("id", "staffId"));
 
 staffRouter.post("/", validateBody(addStaffSchema), staffController.create);
 staffRouter.get("/", validateQuery(listStaffQuerySchema), staffController.list);
-staffRouter.get("/:staffId", staffController.get);
-staffRouter.patch("/:staffId", validateBody(updateStaffSchema), staffController.update);
-staffRouter.put("/:staffId/services", validateBody(assignServicesSchema), staffController.assignServices);
-staffRouter.put("/:staffId/schedule", validateBody(updateScheduleSchema), staffController.updateSchedule);
+staffRouter.get("/:staffId", staffIdParams, staffController.get);
+staffRouter.patch(
+  "/:staffId",
+  staffIdParams,
+  validateBody(updateStaffSchema),
+  staffController.update
+);
+staffRouter.put(
+  "/:staffId/services",
+  staffIdParams,
+  validateBody(assignServicesSchema),
+  staffController.assignServices
+);
+staffRouter.put(
+  "/:staffId/schedule",
+  staffIdParams,
+  validateBody(updateScheduleSchema),
+  staffController.updateSchedule
+);

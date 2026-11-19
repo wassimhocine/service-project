@@ -916,5 +916,33 @@ describe("Appointments Module", () => {
       expect(response.status).toBe(404);
       expect(response.body.error.code).toBe("NOT_FOUND");
     });
+
+    it("prevents concurrent double-booking of the same staff slot", async () => {
+      const [first, second] = await Promise.all([
+        book(customerOne.token, {
+          serviceId,
+          staffId: staffOneMembershipId,
+          startTime: at("14:00"),
+        }),
+        book(customerTwo.token, {
+          serviceId,
+          staffId: staffOneMembershipId,
+          startTime: at("14:00"),
+        }),
+      ]);
+
+      const statuses = [first.status, second.status].sort((a, b) => a - b);
+      expect(statuses).toEqual([201, 409]);
+
+      const count = await prisma.appointment.count({
+        where: {
+          businessId,
+          staffId: staffOneMembershipId,
+          startTime: new Date(at("14:00")),
+          status: { in: ["PENDING", "CONFIRMED"] },
+        },
+      });
+      expect(count).toBe(1);
+    });
   });
 });

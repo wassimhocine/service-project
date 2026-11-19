@@ -76,6 +76,14 @@ const appointmentIdParam = {
   schema: uuid,
 };
 
+const exceptionIdParam = {
+  name: "exceptionId",
+  in: "path",
+  required: true,
+  description: "Schedule exception ID",
+  schema: uuid,
+};
+
 const pageParam = {
   name: "page",
   in: "query",
@@ -116,8 +124,7 @@ export const openApiDocument = {
     title: "ServiceFlow API",
     version: "1.1.0",
     description:
-      "Multi-tenant appointment booking API. Booking requires an authenticated account; " +
-      "public business information is read-only (see the specification document).",
+      "Multi-tenant appointment booking API. All business and booking operations require an authenticated account.",
   },
   servers: [
     { url: "/api/v1", description: "Versioned API" },
@@ -148,6 +155,7 @@ export const openApiDocument = {
       StaffId: staffIdParam,
       ServiceId: serviceIdParam,
       AppointmentId: appointmentIdParam,
+      ExceptionId: exceptionIdParam,
       Page: pageParam,
       Limit: limitParam,
     },
@@ -186,7 +194,7 @@ export const openApiDocument = {
           firstName: { type: "string" },
           lastName: { type: "string" },
           phone: { type: "string", nullable: true },
-          status: { type: "string", enum: ["ACTIVE", "INACTIVE", "SUSPENDED"] },
+          status: { type: "string", enum: ["ACTIVE", "SUSPENDED"] },
         },
       },
       AuthResponse: {
@@ -327,7 +335,6 @@ export const openApiDocument = {
           startTime: { type: "string", nullable: true, example: "14:00" },
           endTime: { type: "string", nullable: true, example: "15:00" },
           reason: { type: "string", nullable: true },
-          createdAt: { type: "string", format: "date-time" },
         },
       },
       Appointment: {
@@ -489,13 +496,19 @@ export const openApiDocument = {
           status: { type: "string", enum: ["INVITED", "ACTIVE"], default: "ACTIVE" },
         },
       },
-      UpdateStaffRequest: {
+      UpdateProfileRequest: {
         type: "object",
         properties: {
-          status: { type: "string", enum: ["INVITED", "ACTIVE", "SUSPENDED"] },
           firstName: { type: "string", maxLength: 100 },
           lastName: { type: "string", maxLength: 100 },
           phone: { type: "string", maxLength: 30, nullable: true },
+        },
+      },
+      UpdateStaffRequest: {
+        type: "object",
+        required: ["status"],
+        properties: {
+          status: { type: "string", enum: ["INVITED", "ACTIVE", "SUSPENDED"] },
         },
       },
       AssignServicesRequest: {
@@ -669,16 +682,52 @@ export const openApiDocument = {
         },
       },
     },
+    "/auth/logout": {
+      post: {
+        tags: ["Auth"],
+        summary: "Log out the current user",
+        responses: {
+          200: ok("Logged out", {
+            type: "object",
+            properties: { message: { type: "string" } },
+          }),
+          401: { $ref: "#/components/responses/Unauthorized" },
+        },
+      },
+    },
+    "/auth/me": {
+      get: {
+        tags: ["Auth"],
+        summary: "Get the currently authenticated user profile",
+        responses: {
+          200: ok("Current user", { $ref: "#/components/schemas/User" }),
+          401: { $ref: "#/components/responses/Unauthorized" },
+          403: { $ref: "#/components/responses/Forbidden" },
+        },
+      },
+      patch: {
+        tags: ["Auth"],
+        summary: "Update the currently authenticated user profile",
+        requestBody: {
+          required: true,
+          ...json({ $ref: "#/components/schemas/UpdateProfileRequest" }),
+        },
+        responses: {
+          200: ok("Updated user", { $ref: "#/components/schemas/User" }),
+          400: { $ref: "#/components/responses/ValidationError" },
+          401: { $ref: "#/components/responses/Unauthorized" },
+          403: { $ref: "#/components/responses/Forbidden" },
+        },
+      },
+    },
     "/businesses": {
       get: {
         tags: ["Businesses"],
         summary: "List the businesses the caller belongs to",
         responses: {
           200: ok("Businesses", {
-            type: "object",
-            properties: {
-              data: { type: "array", items: { $ref: "#/components/schemas/Business" } },
-            },
+            type: "array",
+            items: { $ref: "#/components/schemas/Business" },
           }),
           401: { $ref: "#/components/responses/Unauthorized" },
         },
@@ -712,7 +761,7 @@ export const openApiDocument = {
       },
       patch: {
         tags: ["Businesses"],
-        summary: "Update a business (owner or manager)",
+        summary: "Update a business (owner only)",
         requestBody: {
           required: true,
           ...json({ $ref: "#/components/schemas/UpdateBusinessRequest" }),
@@ -723,6 +772,7 @@ export const openApiDocument = {
           401: { $ref: "#/components/responses/Unauthorized" },
           403: { $ref: "#/components/responses/Forbidden" },
           404: { $ref: "#/components/responses/NotFound" },
+          409: { $ref: "#/components/responses/Conflict" },
         },
       },
     },
@@ -733,13 +783,8 @@ export const openApiDocument = {
         summary: "List business memberships",
         responses: {
           200: ok("Memberships", {
-            type: "object",
-            properties: {
-              data: {
-                type: "array",
-                items: { $ref: "#/components/schemas/Membership" },
-              },
-            },
+            type: "array",
+            items: { $ref: "#/components/schemas/Membership" },
           }),
           401: { $ref: "#/components/responses/Unauthorized" },
           403: { $ref: "#/components/responses/Forbidden" },
@@ -777,6 +822,7 @@ export const openApiDocument = {
           401: { $ref: "#/components/responses/Unauthorized" },
           403: { $ref: "#/components/responses/Forbidden" },
           404: { $ref: "#/components/responses/NotFound" },
+          409: { $ref: "#/components/responses/Conflict" },
         },
       },
     },
@@ -1091,6 +1137,23 @@ export const openApiDocument = {
         },
         responses: {
           201: ok("Exception created", {
+            $ref: "#/components/schemas/ScheduleException",
+          }),
+          400: { $ref: "#/components/responses/ValidationError" },
+          401: { $ref: "#/components/responses/Unauthorized" },
+          403: { $ref: "#/components/responses/Forbidden" },
+          404: { $ref: "#/components/responses/NotFound" },
+          409: { $ref: "#/components/responses/Conflict" },
+        },
+      },
+    },
+    "/businesses/{id}/exceptions/{exceptionId}": {
+      parameters: [businessIdParam, exceptionIdParam],
+      delete: {
+        tags: ["Scheduling"],
+        summary: "Delete a schedule exception (owner or manager)",
+        responses: {
+          200: ok("Exception deleted", {
             $ref: "#/components/schemas/ScheduleException",
           }),
           400: { $ref: "#/components/responses/ValidationError" },

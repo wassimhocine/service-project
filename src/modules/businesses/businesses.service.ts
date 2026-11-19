@@ -1,5 +1,10 @@
 import { AppError } from "../../errors/index.js";
 import { prisma } from "../../infrastructure/prisma.js";
+import {
+  findBusinessOrThrow,
+  verifyManagementAccess,
+  verifyMemberAccess,
+} from "../../utils/tenant-access.js";
 import type {
   AddMemberInput,
   CreateBusinessInput,
@@ -62,23 +67,8 @@ export async function createBusiness(userId: string, input: CreateBusinessInput)
 }
 
 export async function getBusiness(userId: string, businessId: string) {
-  const business = await prisma.business.findUnique({
-    where: { id: businessId },
-  });
-
-  if (!business) {
-    throw new AppError("Business not found", 404, "NOT_FOUND");
-  }
-
-  const membership = await prisma.businessMembership.findUnique({
-    where: {
-      userId_businessId: { userId, businessId },
-    },
-  });
-
-  if (!membership || membership.status !== "ACTIVE") {
-    throw new AppError("You do not have access to this business", 403, "FORBIDDEN");
-  }
+  const business = await findBusinessOrThrow(businessId);
+  const membership = await verifyMemberAccess(userId, businessId);
 
   return {
     ...business,
@@ -155,15 +145,7 @@ export async function updateBusiness(userId: string, businessId: string, input: 
 }
 
 export async function listMembers(userId: string, businessId: string) {
-  const caller = await prisma.businessMembership.findUnique({
-    where: {
-      userId_businessId: { userId, businessId },
-    },
-  });
-
-  if (!caller || caller.status !== "ACTIVE") {
-    throw new AppError("You do not have access to this business", 403, "FORBIDDEN");
-  }
+  await verifyMemberAccess(userId, businessId);
 
   return prisma.businessMembership.findMany({
     where: { businessId },
@@ -186,15 +168,11 @@ export async function listMembers(userId: string, businessId: string) {
 }
 
 export async function addMember(userId: string, businessId: string, input: AddMemberInput) {
-  const caller = await prisma.businessMembership.findUnique({
-    where: {
-      userId_businessId: { userId, businessId },
-    },
-  });
-
-  if (!caller || caller.status !== "ACTIVE" || caller.role === "STAFF") {
-    throw new AppError("Only owners and managers can add members", 403, "FORBIDDEN");
-  }
+  const caller = await verifyManagementAccess(
+    userId,
+    businessId,
+    "Only owners and managers can add members"
+  );
 
   if (caller.role === "MANAGER" && input.role === "OWNER") {
     throw new AppError("Managers cannot assign the OWNER role", 403, "FORBIDDEN");
@@ -248,15 +226,11 @@ export async function updateMember(
   memberId: string,
   input: UpdateMemberInput
 ) {
-  const caller = await prisma.businessMembership.findUnique({
-    where: {
-      userId_businessId: { userId, businessId },
-    },
-  });
-
-  if (!caller || caller.status !== "ACTIVE" || caller.role === "STAFF") {
-    throw new AppError("Only owners and managers can update members", 403, "FORBIDDEN");
-  }
+  const caller = await verifyManagementAccess(
+    userId,
+    businessId,
+    "Only owners and managers can update members"
+  );
 
   const target = await prisma.businessMembership.findUnique({
     where: { id: memberId },
@@ -290,7 +264,7 @@ export async function updateMember(
     });
 
     if (activeOwnerCount <= 1) {
-      throw new AppError("Cannot demote or suspend the last active owner of the business", 400, "BAD_REQUEST");
+      throw new AppError("Cannot demote or suspend the last active owner of the business", 409, "CONFLICT");
     }
   }
 

@@ -36,6 +36,15 @@ export async function createException(req: Request, res: Response): Promise<void
   res.status(201).json(result);
 }
 
+export async function deleteException(req: Request, res: Response): Promise<void> {
+  const result = await schedulingService.deleteException(
+    req.user!.id,
+    req.params.id as string,
+    req.params.exceptionId as string
+  );
+  res.status(200).json(result);
+}
+
 export async function getAvailability(req: Request, res: Response): Promise<void> {
   const result = await schedulingService.getAvailability(
     req.user!.id,

@@ -332,9 +332,10 @@ async function selectStaffId(
 async function findAccessibleAppointment(
   actor: Actor,
   businessId: string,
-  appointmentId: string
+  appointmentId: string,
+  db: Prisma.TransactionClient | typeof prisma = prisma
 ) {
-  const appointment = await prisma.appointment.findUnique({
+  const appointment = await db.appointment.findUnique({
     where: { id: appointmentId },
     include: appointmentInclude,
   });
@@ -569,33 +570,33 @@ export async function rescheduleAppointment(
   input: RescheduleAppointmentInput
 ) {
   const actor = await resolveActor(userId, businessId);
-  const appointment = await findAccessibleAppointment(actor, businessId, appointmentId);
-
-  if (appointment.status !== "PENDING" && appointment.status !== "CONFIRMED") {
-    throw new AppError(
-      "Only pending or confirmed appointments can be rescheduled",
-      409,
-      "CONFLICT"
-    );
-  }
-
-  if (actor.kind === "customer" && appointment.startTime <= new Date()) {
-    throw new AppError(
-      "Appointments can no longer be rescheduled after they have started",
-      409,
-      "CONFLICT"
-    );
-  }
-
   const startTime = new Date(input.startTime);
 
   if (startTime.getTime() <= Date.now()) {
     throw new AppError("Appointments must be scheduled in the future", 409, "CONFLICT");
   }
 
-  const endTime = new Date(startTime.getTime() + appointment.durationMinutes * 60_000);
-
   return runBookingTransaction(async (tx) => {
+    const appointment = await findAccessibleAppointment(actor, businessId, appointmentId, tx);
+
+    if (appointment.status !== "PENDING" && appointment.status !== "CONFIRMED") {
+      throw new AppError(
+        "Only pending or confirmed appointments can be rescheduled",
+        409,
+        "CONFLICT"
+      );
+    }
+
+    if (actor.kind === "customer" && appointment.startTime <= new Date()) {
+      throw new AppError(
+        "Appointments can no longer be rescheduled after they have started",
+        409,
+        "CONFLICT"
+      );
+    }
+
+    const endTime = new Date(startTime.getTime() + appointment.durationMinutes * 60_000);
+
     const business = await tx.business.findUnique({ where: { id: businessId } });
 
     if (!business || business.status !== "ACTIVE") {

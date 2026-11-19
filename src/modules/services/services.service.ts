@@ -1,35 +1,12 @@
 import type { Prisma } from "@prisma/client";
 import { AppError } from "../../errors/index.js";
 import { prisma } from "../../infrastructure/prisma.js";
+import { verifyManagementAccess, verifyMemberAccess } from "../../utils/tenant-access.js";
 import type {
   CreateServiceInput,
   ListServicesQueryInput,
   UpdateServiceInput,
 } from "./services.schemas.js";
-
-async function verifyMemberAccess(userId: string, businessId: string) {
-  const caller = await prisma.businessMembership.findUnique({
-    where: {
-      userId_businessId: { userId, businessId },
-    },
-  });
-
-  if (!caller || caller.status !== "ACTIVE") {
-    throw new AppError("You do not have access to this business", 403, "FORBIDDEN");
-  }
-
-  return caller;
-}
-
-async function verifyManagementAccess(userId: string, businessId: string) {
-  const caller = await verifyMemberAccess(userId, businessId);
-
-  if (caller.role === "STAFF") {
-    throw new AppError("Only owners and managers can manage services", 403, "FORBIDDEN");
-  }
-
-  return caller;
-}
 
 async function findServiceOrThrow(businessId: string, serviceId: string) {
   const service = await prisma.service.findUnique({
@@ -48,7 +25,11 @@ export async function createService(
   businessId: string,
   input: CreateServiceInput
 ) {
-  await verifyManagementAccess(userId, businessId);
+  await verifyManagementAccess(
+    userId,
+    businessId,
+    "Only owners and managers can manage services"
+  );
 
   return prisma.service.create({
     data: {
@@ -122,7 +103,11 @@ export async function updateService(
   serviceId: string,
   input: UpdateServiceInput
 ) {
-  await verifyManagementAccess(userId, businessId);
+  await verifyManagementAccess(
+    userId,
+    businessId,
+    "Only owners and managers can manage services"
+  );
   await findServiceOrThrow(businessId, serviceId);
 
   return prisma.service.update({
@@ -144,7 +129,11 @@ export async function deactivateService(
   businessId: string,
   serviceId: string
 ) {
-  await verifyManagementAccess(userId, businessId);
+  await verifyManagementAccess(
+    userId,
+    businessId,
+    "Only owners and managers can manage services"
+  );
 
   const service = await findServiceOrThrow(businessId, serviceId);
 

@@ -1,6 +1,6 @@
 import { Router } from "express";
-import { authenticate } from "../../middleware/authenticate.js";
-import { validateBody, validateQuery } from "../../middleware/validate.js";
+import { validateBody, validateParams, validateQuery } from "../../middleware/index.js";
+import { uuidParams } from "../../utils/params.js";
 import * as appointmentsController from "./appointments.controller.js";
 import {
   createAppointmentSchema,
@@ -11,7 +11,7 @@ import {
 
 export const appointmentsRouter = Router({ mergeParams: true });
 
-appointmentsRouter.use(authenticate);
+const appointmentIdParams = validateParams(uuidParams("id", "appointmentId"));
 
 appointmentsRouter.post(
   "/",
@@ -23,17 +23,31 @@ appointmentsRouter.get(
   validateQuery(listAppointmentsQuerySchema),
   appointmentsController.list
 );
-appointmentsRouter.get("/:appointmentId", appointmentsController.get);
+appointmentsRouter.get("/:appointmentId", appointmentIdParams, appointmentsController.get);
 appointmentsRouter.patch(
   "/:appointmentId",
+  appointmentIdParams,
   validateBody(updateAppointmentSchema),
   appointmentsController.update
 );
-appointmentsRouter.post("/:appointmentId/cancel", appointmentsController.cancel);
+appointmentsRouter.post(
+  "/:appointmentId/cancel",
+  appointmentIdParams,
+  appointmentsController.cancel
+);
 appointmentsRouter.post(
   "/:appointmentId/reschedule",
+  appointmentIdParams,
   validateBody(rescheduleAppointmentSchema),
   appointmentsController.reschedule
 );
-appointmentsRouter.post("/:appointmentId/complete", appointmentsController.complete);
-appointmentsRouter.post("/:appointmentId/no-show", appointmentsController.noShow);
+appointmentsRouter.post(
+  "/:appointmentId/complete",
+  appointmentIdParams,
+  appointmentsController.complete
+);
+appointmentsRouter.post(
+  "/:appointmentId/no-show",
+  appointmentIdParams,
+  appointmentsController.noShow
+);

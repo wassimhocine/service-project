@@ -1,5 +1,20 @@
 import { z } from "zod";
 
+function isValidTimeZone(value: string): boolean {
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: value });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const ianaTimezone = z
+  .string()
+  .trim()
+  .max(64)
+  .refine(isValidTimeZone, "Invalid IANA timezone");
+
 export const createBusinessSchema = z.object({
   name: z.string().trim().min(1, "Name is required").max(200),
   slug: z
@@ -13,7 +28,7 @@ export const createBusinessSchema = z.object({
   email: z.string().trim().email("Invalid email address").max(320),
   phone: z.string().trim().min(1, "Phone number is required").max(30),
   address: z.string().trim().optional(),
-  timezone: z.string().trim().max(64).optional(),
+  timezone: ianaTimezone.optional(),
   currency: z.string().trim().length(3, "Currency must be 3 characters").optional(),
 });
 
@@ -32,7 +47,7 @@ export const updateBusinessSchema = z.object({
   email: z.string().trim().email().max(320).optional(),
   phone: z.string().trim().min(1).max(30).optional(),
   address: z.string().trim().nullable().optional(),
-  timezone: z.string().trim().max(64).optional(),
+  timezone: ianaTimezone.optional(),
   currency: z.string().trim().length(3).optional(),
   status: z.enum(["ACTIVE", "SUSPENDED"]).optional(),
 });

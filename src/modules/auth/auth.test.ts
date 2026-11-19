@@ -213,4 +213,73 @@ describe("Auth Module - Register & Login", () => {
       expect(response.body.error.message).toContain("suspended");
     });
   });
+
+  describe("GET & PATCH /api/v1/auth/me and POST /api/v1/auth/logout", () => {
+    let token: string;
+
+    beforeEach(async () => {
+      const reg = await request(app).post("/api/v1/auth/register").send({
+        email: testEmail,
+        password: testPassword,
+        firstName: "John",
+        lastName: "Doe",
+      });
+      token = reg.body.token;
+    });
+
+    it("returns the current authenticated user from GET /me", async () => {
+      const response = await request(app)
+        .get("/api/v1/auth/me")
+        .set("Authorization", `Bearer ${token}`);
+
+      expect(response.status).toBe(200);
+      expect(response.body).toMatchObject({
+        email: testEmail,
+        firstName: "John",
+        lastName: "Doe",
+        phone: null,
+        status: "ACTIVE",
+      });
+      expect(response.body).not.toHaveProperty("passwordHash");
+    });
+
+    it("returns 401 when GET /me is called without authentication", async () => {
+      const response = await request(app).get("/api/v1/auth/me");
+      expect(response.status).toBe(401);
+    });
+
+    it("updates user profile including phone via PATCH /me", async () => {
+      const response = await request(app)
+        .patch("/api/v1/auth/me")
+        .set("Authorization", `Bearer ${token}`)
+        .send({ firstName: "Jonathan", phone: "+15551234567" });
+
+      expect(response.status).toBe(200);
+      expect(response.body.firstName).toBe("Jonathan");
+      expect(response.body.phone).toBe("+15551234567");
+      expect(response.body.lastName).toBe("Doe");
+    });
+
+    it("returns 400 when PATCH /me is sent an empty body", async () => {
+      const response = await request(app)
+        .patch("/api/v1/auth/me")
+        .set("Authorization", `Bearer ${token}`)
+        .send({});
+
+      expect(response.status).toBe(400);
+      expect(response.body.error.code).toBe("VALIDATION_ERROR");
+    });
+
+    it("logs out an authenticated user via POST /logout", async () => {
+      const unauth = await request(app).post("/api/v1/auth/logout");
+      expect(unauth.status).toBe(401);
+
+      const response = await request(app)
+        .post("/api/v1/auth/logout")
+        .set("Authorization", `Bearer ${token}`);
+
+      expect(response.status).toBe(200);
+      expect(response.body).toHaveProperty("message");
+    });
+  });
 });

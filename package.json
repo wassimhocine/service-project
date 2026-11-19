@@ -8,11 +8,13 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "build": "tsc",
+    "lint": "eslint src tests",
     "start": "node dist/server.js",
     "test": "vitest run",
     "test:watch": "vitest",
     "prisma:generate": "prisma generate",
-    "prisma:migrate": "prisma migrate dev"
+    "prisma:migrate": "prisma migrate dev",
+    "openapi:generate": "tsx scripts/generate-openapi.ts"
   },
   "keywords": [],
   "author": "",

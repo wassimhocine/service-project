@@ -377,5 +377,38 @@ describe("Customers Module", () => {
       expect(response.status).toBe(409);
       expect(response.body.error.code).toBe("CONFLICT");
     });
+
+    it("allows STAFF to read customers but forbids creating or updating them", async () => {
+      await request(app)
+        .post(`/api/v1/businesses/${businessId}/members`)
+        .set("Authorization", `Bearer ${ownerToken}`)
+        .send({
+          email: outsiderEmail,
+          role: "STAFF",
+          status: "ACTIVE",
+        });
+
+      const listRes = await request(app)
+        .get(`/api/v1/businesses/${businessId}/customers`)
+        .set("Authorization", `Bearer ${outsiderToken}`);
+      expect(listRes.status).toBe(200);
+
+      const createRes = await request(app)
+        .post(`/api/v1/businesses/${businessId}/customers`)
+        .set("Authorization", `Bearer ${outsiderToken}`)
+        .send({
+          firstName: "Blocked",
+          lastName: "Create",
+          email: "blocked@client.test",
+          phone: "+1999999999",
+        });
+      expect(createRes.status).toBe(403);
+
+      const updateRes = await request(app)
+        .patch(`/api/v1/businesses/${businessId}/customers/${customerId}`)
+        .set("Authorization", `Bearer ${outsiderToken}`)
+        .send({ notes: "Not allowed" });
+      expect(updateRes.status).toBe(403);
+    });
   });
 });

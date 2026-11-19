@@ -1,6 +1,6 @@
 import { Router } from "express";
-import { authenticate } from "../../middleware/authenticate.js";
-import { validateBody, validateQuery } from "../../middleware/validate.js";
+import { validateBody, validateParams, validateQuery } from "../../middleware/index.js";
+import { uuidParams } from "../../utils/params.js";
 import * as schedulingController from "./scheduling.controller.js";
 import {
   availabilityQuerySchema,
@@ -11,7 +11,7 @@ import {
 
 export const schedulingRouter = Router({ mergeParams: true });
 
-schedulingRouter.use(authenticate);
+const exceptionIdParams = validateParams(uuidParams("id", "exceptionId"));
 
 schedulingRouter.get("/working-hours", schedulingController.getWorkingHours);
 schedulingRouter.put(
@@ -29,6 +29,11 @@ schedulingRouter.post(
   "/exceptions",
   validateBody(createExceptionSchema),
   schedulingController.createException
+);
+schedulingRouter.delete(
+  "/exceptions/:exceptionId",
+  exceptionIdParams,
+  schedulingController.deleteException
 );
 
 schedulingRouter.get(

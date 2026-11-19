@@ -2,6 +2,12 @@ import type { BusinessWorkingHours, Prisma, ScheduleException } from "@prisma/cl
 import { AppError } from "../../errors/index.js";
 import { prisma } from "../../infrastructure/prisma.js";
 import {
+  findBusinessOrThrow,
+  findStaffMembershipOrThrow,
+  verifyManagementAccess,
+  verifyMemberAccess,
+} from "../../utils/tenant-access.js";
+import {
   addDaysToDateKey,
   dateKeyToUtcDate,
   getZonedParts,
@@ -38,56 +44,6 @@ type NormalizedWorkingHours = {
   isClosed: boolean;
 };
 
-async function verifyMemberAccess(userId: string, businessId: string) {
-  const caller = await prisma.businessMembership.findUnique({
-    where: {
-      userId_businessId: { userId, businessId },
-    },
-  });
-
-  if (!caller || caller.status !== "ACTIVE") {
-    throw new AppError("You do not have access to this business", 403, "FORBIDDEN");
-  }
-
-  return caller;
-}
-
-async function verifyManagementAccess(userId: string, businessId: string) {
-  const caller = await verifyMemberAccess(userId, businessId);
-
-  if (caller.role === "STAFF") {
-    throw new AppError(
-      "Only owners and managers can manage the business schedule",
-      403,
-      "FORBIDDEN"
-    );
-  }
-
-  return caller;
-}
-
-async function findBusinessOrThrow(businessId: string) {
-  const business = await prisma.business.findUnique({ where: { id: businessId } });
-
-  if (!business) {
-    throw new AppError("Business not found", 404, "NOT_FOUND");
-  }
-
-  return business;
-}
-
-async function findStaffOrThrow(businessId: string, staffId: string) {
-  const staff = await prisma.businessMembership.findUnique({
-    where: { id: staffId },
-  });
-
-  if (!staff || staff.businessId !== businessId || staff.role !== "STAFF") {
-    throw new AppError("Staff member not found in this business", 404, "NOT_FOUND");
-  }
-
-  return staff;
-}
-
 function formatTime(value: Date | null): string | null {
   return value ? value.toISOString().slice(11, 16) : null;
 }
@@ -117,8 +73,26 @@ function serializeException(exception: ScheduleException) {
     startTime: formatTime(exception.startTime),
     endTime: formatTime(exception.endTime),
     reason: exception.reason,
-    createdAt: exception.createdAt,
   };
+}
+
+function resolveDayBounds(dateKey: string, timeZone: string): { dayStart: Date; dayEnd: Date } {
+  try {
+    const dayStart = zonedDateTimeToUtc(dateKey, 0, timeZone);
+    const dayEnd = zonedDateTimeToUtc(addDaysToDateKey(dateKey, 1), 0, timeZone);
+    // Validate the timezone eagerly so an invalid value fails with a clear error.
+    getZonedParts(dayStart, timeZone);
+    return { dayStart, dayEnd };
+  } catch (error) {
+    if (error instanceof RangeError) {
+      throw new AppError(
+        "The business timezone is not configured correctly",
+        500,
+        "INTERNAL_SERVER_ERROR"
+      );
+    }
+    throw error;
+  }
 }
 
 export async function getWorkingHours(userId: string, businessId: string) {
@@ -141,7 +115,11 @@ export async function updateWorkingHours(
   businessId: string,
   input: UpdateWorkingHoursInput
 ) {
-  await verifyManagementAccess(userId, businessId);
+  await verifyManagementAccess(
+    userId,
+    businessId,
+    "Only owners and managers can manage the business schedule"
+  );
 
   const business = await findBusinessOrThrow(businessId);
 
@@ -205,7 +183,7 @@ export async function listExceptions(
       where,
       skip,
       take: query.limit,
-      orderBy: [{ date: "asc" }, { createdAt: "asc" }],
+      orderBy: [{ date: "asc" }, { startTime: "asc" }, { id: "asc" }],
     }),
   ]);
 
@@ -225,7 +203,11 @@ export async function createException(
   businessId: string,
   input: CreateExceptionInput
 ) {
-  await verifyManagementAccess(userId, businessId);
+  await verifyManagementAccess(
+    userId,
+    businessId,
+    "Only owners and managers can manage the business schedule"
+  );
   await findBusinessOrThrow(businessId);
 
   const staffId = input.staffId ?? null;
@@ -238,21 +220,74 @@ export async function createException(
     );
   }
 
+  if (input.type === "HOLIDAY" && staffId !== null) {
+    throw new AppError(
+      "Holidays are business-wide; use TIME_OFF for individual staff members",
+      400,
+      "BAD_REQUEST"
+    );
+  }
+
   if (staffId !== null) {
-    await findStaffOrThrow(businessId, staffId);
+    await findStaffMembershipOrThrow(businessId, staffId);
+  }
+
+  const date = dateKeyToUtcDate(input.date);
+
+  if (input.type === "HOLIDAY" || input.type === "SPECIAL_HOURS") {
+    const duplicate = await prisma.scheduleException.findFirst({
+      where: {
+        businessId,
+        staffId,
+        date,
+        type: input.type,
+      },
+    });
+
+    if (duplicate) {
+      throw new AppError(
+        `A ${input.type} exception already exists for this date`,
+        409,
+        "CONFLICT"
+      );
+    }
   }
 
   const exception = await prisma.scheduleException.create({
     data: {
       businessId,
       staffId,
-      date: dateKeyToUtcDate(input.date),
+      date,
       type: input.type,
       startTime: input.startTime ? timeStringToDate(input.startTime) : null,
       endTime: input.endTime ? timeStringToDate(input.endTime) : null,
       reason: input.reason,
     },
   });
+
+  return serializeException(exception);
+}
+
+export async function deleteException(
+  userId: string,
+  businessId: string,
+  exceptionId: string
+) {
+  await verifyManagementAccess(
+    userId,
+    businessId,
+    "Only owners and managers can manage the business schedule"
+  );
+
+  const exception = await prisma.scheduleException.findUnique({
+    where: { id: exceptionId },
+  });
+
+  if (!exception || exception.businessId !== businessId) {
+    throw new AppError("Schedule exception not found in this business", 404, "NOT_FOUND");
+  }
+
+  await prisma.scheduleException.delete({ where: { id: exceptionId } });
 
   return serializeException(exception);
 }
@@ -295,6 +330,10 @@ export async function getAvailability(
 
   const business = await findBusinessOrThrow(businessId);
 
+  if (business.status !== "ACTIVE") {
+    throw new AppError("This business is not accepting appointments", 409, "CONFLICT");
+  }
+
   const service = await prisma.service.findUnique({ where: { id: query.serviceId } });
 
   if (!service || service.businessId !== businessId) {
@@ -305,7 +344,7 @@ export async function getAvailability(
     throw new AppError("This service is not available for booking", 409, "CONFLICT");
   }
 
-  let staffIds: string[];
+  let staffIds: string[] = [];
 
   if (query.staffId !== undefined) {
     const staff = await prisma.businessMembership.findUnique({
@@ -354,28 +393,7 @@ export async function getAvailability(
     staffIds = staff.map((entry) => entry.id);
   }
 
-  let dayStart: Date;
-  let dayEnd: Date;
-
-  try {
-    dayStart = zonedDateTimeToUtc(query.date, 0, business.timezone);
-    dayEnd = zonedDateTimeToUtc(
-      addDaysToDateKey(query.date, 1),
-      0,
-      business.timezone
-    );
-    // Validate the timezone eagerly so an invalid value fails with a clear error.
-    getZonedParts(dayStart, business.timezone);
-  } catch (error) {
-    if (error instanceof RangeError) {
-      throw new AppError(
-        "The business timezone is not configured correctly",
-        500,
-        "INTERNAL_SERVER_ERROR"
-      );
-    }
-    throw error;
-  }
+  const { dayStart, dayEnd } = resolveDayBounds(query.date, business.timezone);
 
   if (staffIds.length === 0) {
     return {

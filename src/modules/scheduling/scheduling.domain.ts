@@ -1,4 +1,4 @@
-import type { Prisma } from "@prisma/client";
+import type { Prisma, PrismaClient } from "@prisma/client";
 import { AppError } from "../../errors/index.js";
 
 export type TimeWindow = { start: number; end: number };
@@ -11,10 +11,7 @@ export type DaySchedule = {
   blockedRanges: (TimeWindow | null)[];
 };
 
-type PrismaLike = Pick<
-  Prisma.TransactionClient,
-  "scheduleException" | "businessWorkingHours" | "staffWorkingHours"
->;
+type PrismaLike = PrismaClient | Prisma.TransactionClient;
 
 const WEEKDAY_INDEX: Record<string, number> = {
   Sun: 0,
@@ -149,7 +146,9 @@ export async function resolveDaySchedule(
     where: { staffId },
   });
 
-  const closed = exceptions.some((exception) => exception.type === "HOLIDAY");
+  const closed = exceptions.some(
+    (exception) => exception.staffId === null && exception.type === "HOLIDAY"
+  );
 
   let businessWindow: TimeWindow | null = null;
   const businessSpecial = exceptions.find(
@@ -201,7 +200,11 @@ export async function resolveDaySchedule(
   }
 
   const blockedRanges = exceptions
-    .filter((exception) => exception.type === "TIME_OFF")
+    .filter(
+      (exception) =>
+        exception.type === "TIME_OFF" ||
+        (exception.type === "HOLIDAY" && exception.staffId === staffId)
+    )
     .map((exception) =>
       exception.startTime && exception.endTime
         ? {

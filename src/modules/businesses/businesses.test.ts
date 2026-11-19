@@ -11,8 +11,6 @@ describe("Businesses Module", () => {
   const password = "Password123!";
 
   let ownerToken: string;
-  let managerToken: string;
-  let staffToken: string;
   let outsiderToken: string;
 
   const cleanDatabase = async () => {
@@ -55,8 +53,8 @@ describe("Businesses Module", () => {
   beforeEach(async () => {
     await cleanDatabase();
     ownerToken = await registerUser(ownerEmail, "Owner", "User");
-    managerToken = await registerUser(managerEmail, "Manager", "User");
-    staffToken = await registerUser(staffEmail, "Staff", "User");
+    await registerUser(managerEmail, "Manager", "User");
+    await registerUser(staffEmail, "Staff", "User");
     outsiderToken = await registerUser(outsiderEmail, "Outsider", "User");
   });
 
@@ -141,6 +139,22 @@ describe("Businesses Module", () => {
       expect(duplicate.status).toBe(409);
       expect(duplicate.body.error.code).toBe("CONFLICT");
     });
+
+    it("returns 400 VALIDATION_ERROR when timezone is not a valid IANA timezone", async () => {
+      const response = await request(app)
+        .post("/api/v1/businesses")
+        .set("Authorization", `Bearer ${ownerToken}`)
+        .send({
+          name: "Bad TZ Biz",
+          slug: "bad-tz-biz",
+          email: "tz@biz.test",
+          phone: "+1234567890",
+          timezone: "Not/A_Timezone",
+        });
+
+      expect(response.status).toBe(400);
+      expect(response.body.error.code).toBe("VALIDATION_ERROR");
+    });
   });
 
   describe("GET /api/v1/businesses/:id", () => {
@@ -187,6 +201,15 @@ describe("Businesses Module", () => {
 
       expect(response.status).toBe(404);
       expect(response.body.error.code).toBe("NOT_FOUND");
+    });
+
+    it("returns 400 VALIDATION_ERROR when business id is not a valid UUID", async () => {
+      const response = await request(app)
+        .get("/api/v1/businesses/not-a-uuid")
+        .set("Authorization", `Bearer ${ownerToken}`);
+
+      expect(response.status).toBe(400);
+      expect(response.body.error.code).toBe("VALIDATION_ERROR");
     });
   });
 
@@ -356,8 +379,8 @@ describe("Businesses Module", () => {
           role: "STAFF",
         });
 
-      expect(demoteRes.status).toBe(400);
-      expect(demoteRes.body.error.code).toBe("BAD_REQUEST");
+      expect(demoteRes.status).toBe(409);
+      expect(demoteRes.body.error.code).toBe("CONFLICT");
       expect(demoteRes.body.error.message).toContain("last active owner");
     });
   });

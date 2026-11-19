@@ -11,23 +11,9 @@ export const addStaffSchema = z.object({
 
 export type AddStaffInput = z.infer<typeof addStaffSchema>;
 
-export const updateStaffSchema = z
-  .object({
-    status: z.enum(["INVITED", "ACTIVE", "SUSPENDED"]).optional(),
-    firstName: z.string().trim().min(1).max(100).optional(),
-    lastName: z.string().trim().min(1).max(100).optional(),
-    phone: z.string().trim().max(30).nullable().optional(),
-  })
-  .refine(
-    (data) =>
-      data.status !== undefined ||
-      data.firstName !== undefined ||
-      data.lastName !== undefined ||
-      data.phone !== undefined,
-    {
-      message: "At least one field must be provided for update",
-    }
-  );
+export const updateStaffSchema = z.object({
+  status: z.enum(["INVITED", "ACTIVE", "SUSPENDED"]),
+});
 
 export type UpdateStaffInput = z.infer<typeof updateStaffSchema>;
 

@@ -1,32 +1,23 @@
 import type { Prisma } from "@prisma/client";
 import { AppError } from "../../errors/index.js";
 import { prisma } from "../../infrastructure/prisma.js";
+import { verifyManagementAccess, verifyMemberAccess } from "../../utils/tenant-access.js";
 import type {
   CreateCustomerInput,
   ListCustomersQueryInput,
   UpdateCustomerInput,
 } from "./customers.schemas.js";
 
-async function verifyMemberAccess(userId: string, businessId: string) {
-  const caller = await prisma.businessMembership.findUnique({
-    where: {
-      userId_businessId: { userId, businessId },
-    },
-  });
-
-  if (!caller || caller.status !== "ACTIVE") {
-    throw new AppError("You do not have access to this business", 403, "FORBIDDEN");
-  }
-
-  return caller;
-}
-
 export async function createCustomer(
   userId: string,
   businessId: string,
   input: CreateCustomerInput
 ) {
-  await verifyMemberAccess(userId, businessId);
+  await verifyManagementAccess(
+    userId,
+    businessId,
+    "Only owners and managers can manage customers"
+  );
 
   const email = input.email.toLowerCase();
 
@@ -101,7 +92,7 @@ export async function listCustomers(
       total,
       page: query.page,
       limit: query.limit,
-      totalPages: Math.ceil(total / query.limit) || 1,
+      totalPages: Math.ceil(total / query.limit),
     },
   };
 }
@@ -141,7 +132,11 @@ export async function updateCustomer(
   customerId: string,
   input: UpdateCustomerInput
 ) {
-  await verifyMemberAccess(userId, businessId);
+  await verifyManagementAccess(
+    userId,
+    businessId,
+    "Only owners and managers can manage customers"
+  );
 
   const customer = await prisma.customer.findUnique({
     where: { id: customerId },

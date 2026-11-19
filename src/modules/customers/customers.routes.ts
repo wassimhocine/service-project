@@ -1,6 +1,6 @@
 import { Router } from "express";
-import { authenticate } from "../../middleware/authenticate.js";
-import { validateBody, validateQuery } from "../../middleware/validate.js";
+import { validateBody, validateParams, validateQuery } from "../../middleware/index.js";
+import { uuidParams } from "../../utils/params.js";
 import * as customersController from "./customers.controller.js";
 import {
   createCustomerSchema,
@@ -10,9 +10,14 @@ import {
 
 export const customersRouter = Router({ mergeParams: true });
 
-customersRouter.use(authenticate);
+const customerIdParams = validateParams(uuidParams("id", "customerId"));
 
 customersRouter.post("/", validateBody(createCustomerSchema), customersController.create);
 customersRouter.get("/", validateQuery(listCustomersQuerySchema), customersController.list);
-customersRouter.get("/:customerId", customersController.get);
-customersRouter.patch("/:customerId", validateBody(updateCustomerSchema), customersController.update);
+customersRouter.get("/:customerId", customerIdParams, customersController.get);
+customersRouter.patch(
+  "/:customerId",
+  customerIdParams,
+  validateBody(updateCustomerSchema),
+  customersController.update
+);

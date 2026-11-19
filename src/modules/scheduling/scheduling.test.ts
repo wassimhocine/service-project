@@ -498,6 +498,51 @@ describe("Scheduling Module", () => {
       expect(paginated.body.data).toHaveLength(2);
       expect(paginated.body.pagination.totalPages).toBe(2);
     });
+
+    it("rejects staff-scoped HOLIDAY and duplicate HOLIDAY/SPECIAL_HOURS on the same date", async () => {
+      const staffHoliday = await request(app)
+        .post(`/api/v1/businesses/${businessId}/exceptions`)
+        .set("Authorization", `Bearer ${owner.token}`)
+        .send({ staffId: staffOneMembershipId, date: monday, type: "HOLIDAY" });
+      expect(staffHoliday.status).toBe(400);
+
+      const first = await request(app)
+        .post(`/api/v1/businesses/${businessId}/exceptions`)
+        .set("Authorization", `Bearer ${owner.token}`)
+        .send({ date: monday, type: "HOLIDAY" });
+      expect(first.status).toBe(201);
+
+      const dup = await request(app)
+        .post(`/api/v1/businesses/${businessId}/exceptions`)
+        .set("Authorization", `Bearer ${owner.token}`)
+        .send({ date: monday, type: "HOLIDAY" });
+      expect(dup.status).toBe(409);
+      expect(dup.body.error.code).toBe("CONFLICT");
+    });
+
+    it("deletes a schedule exception and enforces permissions & tenant isolation", async () => {
+      const created = await request(app)
+        .post(`/api/v1/businesses/${businessId}/exceptions`)
+        .set("Authorization", `Bearer ${owner.token}`)
+        .send({ date: monday, type: "HOLIDAY", reason: "Accidental entry" });
+      expect(created.status).toBe(201);
+
+      const forbidden = await request(app)
+        .delete(`/api/v1/businesses/${businessId}/exceptions/${created.body.id}`)
+        .set("Authorization", `Bearer ${staffOne.token}`);
+      expect(forbidden.status).toBe(403);
+
+      const deleted = await request(app)
+        .delete(`/api/v1/businesses/${businessId}/exceptions/${created.body.id}`)
+        .set("Authorization", `Bearer ${owner.token}`);
+      expect(deleted.status).toBe(200);
+      expect(deleted.body.id).toBe(created.body.id);
+
+      const secondDelete = await request(app)
+        .delete(`/api/v1/businesses/${businessId}/exceptions/${created.body.id}`)
+        .set("Authorization", `Bearer ${owner.token}`);
+      expect(secondDelete.status).toBe(404);
+    });
   });
 
   describe("GET /api/v1/businesses/:id/availability", () => {
@@ -825,6 +870,21 @@ describe("Scheduling Module", () => {
 
       expect(response.status).toBe(403);
       expect(response.body.error.code).toBe("FORBIDDEN");
+    });
+
+    it("returns 409 when the business is suspended", async () => {
+      await prisma.business.update({
+        where: { id: businessId },
+        data: { status: "SUSPENDED" },
+      });
+
+      const response = await getAvailability(
+        owner.token,
+        `date=${monday}&serviceId=${serviceId}`
+      );
+
+      expect(response.status).toBe(409);
+      expect(response.body.error.code).toBe("CONFLICT");
     });
   });
 });

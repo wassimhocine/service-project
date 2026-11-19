@@ -1,6 +1,7 @@
 import type { Prisma } from "@prisma/client";
 import { AppError } from "../../errors/index.js";
 import { prisma } from "../../infrastructure/prisma.js";
+import { verifyManagementAccess, verifyMemberAccess } from "../../utils/tenant-access.js";
 import type {
   AddStaffInput,
   AssignServicesInput,
@@ -38,28 +39,24 @@ const staffInclude = {
   },
 } satisfies Prisma.BusinessMembershipInclude;
 
-async function verifyMemberAccess(userId: string, businessId: string) {
-  const caller = await prisma.businessMembership.findUnique({
-    where: {
-      userId_businessId: { userId, businessId },
-    },
-  });
+type StaffRecord = Prisma.BusinessMembershipGetPayload<{ include: typeof staffInclude }>;
 
-  if (!caller || caller.status !== "ACTIVE") {
-    throw new AppError("You do not have access to this business", 403, "FORBIDDEN");
-  }
-
-  return caller;
+function formatTime(value: Date | null): string | null {
+  return value ? value.toISOString().slice(11, 16) : null;
 }
 
-async function verifyManagementAccess(userId: string, businessId: string) {
-  const caller = await verifyMemberAccess(userId, businessId);
-
-  if (caller.role === "STAFF") {
-    throw new AppError("Only owners and managers can manage staff", 403, "FORBIDDEN");
-  }
-
-  return caller;
+function serializeStaff(staff: StaffRecord) {
+  return {
+    ...staff,
+    workingHours: staff.workingHours.map((entry) => ({
+      id: entry.id,
+      staffId: entry.staffId,
+      dayOfWeek: entry.dayOfWeek,
+      startTime: entry.isOff ? null : formatTime(entry.startTime),
+      endTime: entry.isOff ? null : formatTime(entry.endTime),
+      isOff: entry.isOff,
+    })),
+  };
 }
 
 async function findStaffOrThrow(businessId: string, staffId: string) {
@@ -85,7 +82,11 @@ export async function createStaff(
   businessId: string,
   input: AddStaffInput
 ) {
-  await verifyManagementAccess(userId, businessId);
+  await verifyManagementAccess(
+    userId,
+    businessId,
+    "Only owners and managers can manage staff"
+  );
 
   const email = input.email.toLowerCase();
 
@@ -110,7 +111,7 @@ export async function createStaff(
     throw new AppError("User is already a member of this business", 409, "CONFLICT");
   }
 
-  return prisma.businessMembership.create({
+  const created = await prisma.businessMembership.create({
     data: {
       userId: targetUser.id,
       businessId,
@@ -119,6 +120,8 @@ export async function createStaff(
     },
     include: staffInclude,
   });
+
+  return serializeStaff(created);
 }
 
 export async function listStaff(
@@ -162,7 +165,7 @@ export async function listStaff(
   ]);
 
   return {
-    data,
+    data: data.map(serializeStaff),
     pagination: {
       total,
       page: query.page,
@@ -179,7 +182,8 @@ export async function getStaff(
 ) {
   await verifyMemberAccess(userId, businessId);
 
-  return findStaffOrThrow(businessId, staffId);
+  const staff = await findStaffOrThrow(businessId, staffId);
+  return serializeStaff(staff);
 }
 
 export async function updateStaff(
@@ -188,34 +192,23 @@ export async function updateStaff(
   staffId: string,
   input: UpdateStaffInput
 ) {
-  await verifyManagementAccess(userId, businessId);
+  await verifyManagementAccess(
+    userId,
+    businessId,
+    "Only owners and managers can manage staff"
+  );
 
-  const staff = await findStaffOrThrow(businessId, staffId);
+  await findStaffOrThrow(businessId, staffId);
 
-  return prisma.$transaction(async (tx) => {
-    if (
-      input.firstName !== undefined ||
-      input.lastName !== undefined ||
-      input.phone !== undefined
-    ) {
-      await tx.user.update({
-        where: { id: staff.userId },
-        data: {
-          ...(input.firstName !== undefined && { firstName: input.firstName }),
-          ...(input.lastName !== undefined && { lastName: input.lastName }),
-          ...(input.phone !== undefined && { phone: input.phone }),
-        },
-      });
-    }
-
-    return tx.businessMembership.update({
-      where: { id: staffId },
-      data: {
-        ...(input.status !== undefined && { status: input.status }),
-      },
-      include: staffInclude,
-    });
+  const updated = await prisma.businessMembership.update({
+    where: { id: staffId },
+    data: {
+      status: input.status,
+    },
+    include: staffInclude,
   });
+
+  return serializeStaff(updated);
 }
 
 export async function assignServices(
@@ -224,7 +217,11 @@ export async function assignServices(
   staffId: string,
   input: AssignServicesInput
 ) {
-  await verifyManagementAccess(userId, businessId);
+  await verifyManagementAccess(
+    userId,
+    businessId,
+    "Only owners and managers can manage staff"
+  );
 
   const staff = await findStaffOrThrow(businessId, staffId);
   const serviceIds = [...new Set(input.serviceIds)];
@@ -256,7 +253,8 @@ export async function assignServices(
       : []),
   ]);
 
-  return findStaffOrThrow(businessId, staffId);
+  const updated = await findStaffOrThrow(businessId, staffId);
+  return serializeStaff(updated);
 }
 
 export async function updateSchedule(
@@ -265,7 +263,11 @@ export async function updateSchedule(
   staffId: string,
   input: UpdateScheduleInput
 ) {
-  await verifyManagementAccess(userId, businessId);
+  await verifyManagementAccess(
+    userId,
+    businessId,
+    "Only owners and managers can manage staff"
+  );
 
   const staff = await findStaffOrThrow(businessId, staffId);
 
@@ -288,5 +290,6 @@ export async function updateSchedule(
       : []),
   ]);
 
-  return findStaffOrThrow(businessId, staffId);
+  const updated = await findStaffOrThrow(businessId, staffId);
+  return serializeStaff(updated);
 }

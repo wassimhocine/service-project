@@ -3,7 +3,18 @@ import jwt, { type SignOptions } from "jsonwebtoken";
 import { config } from "../../config/index.js";
 import { AppError } from "../../errors/index.js";
 import { prisma } from "../../infrastructure/prisma.js";
-import type { LoginInput, RegisterInput } from "./auth.schemas.js";
+import type { LoginInput, RegisterInput, UpdateProfileInput } from "./auth.schemas.js";
+
+const publicUserSelect = {
+  id: true,
+  email: true,
+  firstName: true,
+  lastName: true,
+  phone: true,
+  status: true,
+  createdAt: true,
+  updatedAt: true,
+} as const;
 
 function signToken(userId: string, email: string): string {
   const options: SignOptions = {
@@ -33,16 +44,7 @@ export async function register(input: RegisterInput) {
       lastName: input.lastName,
       phone: input.phone,
     },
-    select: {
-      id: true,
-      email: true,
-      firstName: true,
-      lastName: true,
-      phone: true,
-      status: true,
-      createdAt: true,
-      updatedAt: true,
-    },
+    select: publicUserSelect,
   });
 
   const token = signToken(user.id, user.email);
@@ -86,4 +88,35 @@ export async function login(input: LoginInput) {
     },
     token,
   };
+}
+
+export async function getMe(userId: string) {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: publicUserSelect,
+  });
+
+  if (!user) {
+    throw new AppError("Authenticated user no longer exists", 401, "UNAUTHORIZED");
+  }
+
+  if (user.status === "SUSPENDED") {
+    throw new AppError("Account has been suspended", 403, "FORBIDDEN");
+  }
+
+  return user;
+}
+
+export async function updateMe(userId: string, input: UpdateProfileInput) {
+  await getMe(userId);
+
+  return prisma.user.update({
+    where: { id: userId },
+    data: {
+      ...(input.firstName !== undefined && { firstName: input.firstName }),
+      ...(input.lastName !== undefined && { lastName: input.lastName }),
+      ...(input.phone !== undefined && { phone: input.phone }),
+    },
+    select: publicUserSelect,
+  });
 }

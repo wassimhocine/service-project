@@ -31,6 +31,10 @@ export function errorHandler(err: unknown, req: Request, res: Response, _next: N
       res.status(404).json({ error: { code: "NOT_FOUND", message: "Record not found" } });
       return;
     }
+    if (err.code === "P2023") {
+      res.status(400).json({ error: { code: "BAD_REQUEST", message: "Invalid identifier format" } });
+      return;
+    }
   }
 
   if (err instanceof SyntaxError && "status" in err && err.status === 400) {

@@ -376,20 +376,17 @@ describe("Staff Module", () => {
       staffId = res.body.id;
     });
 
-    it("updates staff status and profile information", async () => {
+    it("updates staff membership status without mutating the global user profile", async () => {
       const response = await request(app)
         .patch(`/api/v1/businesses/${businessId}/staff/${staffId}`)
         .set("Authorization", `Bearer ${owner.token}`)
         .send({
           status: "SUSPENDED",
-          firstName: "Samuel",
-          phone: "+1999888777",
         });
 
       expect(response.status).toBe(200);
       expect(response.body.status).toBe("SUSPENDED");
-      expect(response.body.user.firstName).toBe("Samuel");
-      expect(response.body.user.phone).toBe("+1999888777");
+      expect(response.body.user.firstName).toBe("Sam");
       expect(response.body.user.lastName).toBe("Staff");
     });
 
@@ -542,8 +539,12 @@ describe("Staff Module", () => {
       expect(response.status).toBe(200);
       expect(response.body.workingHours).toHaveLength(2);
       expect(response.body.workingHours[0].dayOfWeek).toBe(1);
+      expect(response.body.workingHours[0].startTime).toBe("09:00");
+      expect(response.body.workingHours[0].endTime).toBe("17:00");
       expect(response.body.workingHours[0].isOff).toBe(false);
       expect(response.body.workingHours[1].dayOfWeek).toBe(2);
+      expect(response.body.workingHours[1].startTime).toBeNull();
+      expect(response.body.workingHours[1].endTime).toBeNull();
       expect(response.body.workingHours[1].isOff).toBe(true);
     });
 
