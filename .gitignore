@@ -3,3 +3,4 @@ dist/
 .env
 coverage/
 service-project.md
+openapi.json
